@@ -38,6 +38,7 @@ async function run() {
     const menuCollection = client.db("bistroDB").collection("menu");
     const reviewCollection = client.db("bistroDB").collection("reviews");
     const cartCollection = client.db("bistroDB").collection("carts");
+    const paymentCollection = client.db("bistroDB").collection("payments");
 
     app.post("/jwt", async (req, res) => {
       const user = req.body;
@@ -214,16 +215,29 @@ async function run() {
 //     payment intent========
 app.post('/create-payment-intent',async(req,res)=> {
         const {price} = req.body;
-        const amount = parseFloat(price * 100);
+        const amount = parseInt(price * 100);
         const paymentIntent = await stripe.paymentIntents.create({
                 amount: amount,
                 currency: 'usd',
-                payment_menthod_types: ['card']
+                payment_method_types: ['card']
         })
 
         res.send({
                 clientSecret: paymentIntent.client_secret
         })
+})
+
+app.post('/payments', async (req, res) => {
+        const payment = req.body;
+        const paymentResult = await paymentCollection.insertOne(payment)
+
+        // delete cart items 
+        const query = {_id:{
+                $in: payment.cartIds.map(id => new ObjectId(id))}}
+                
+        const deleteResult = await cartCollection.deleteMany(query)
+
+        res.send({paymentResult, deleteResult})
 })
   } finally {
     // Ensures that the client will close when you finish/error
