@@ -6,7 +6,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const port = process.env.PORT || 3000;
 require("dotenv").config();
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 // console.log(process.env.STRIPE_SECRET_KEY)
 
 // middlewears======
@@ -142,37 +142,35 @@ async function run() {
       res.send(result);
     });
 
-
     app.get("/menu/:id", async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)}
+      const query = { _id: new ObjectId(id) };
       const result = await menuCollection.findOne(query);
       res.send(result);
     });
 
-
     app.post("/menu", verifyToken, verifyAdmin, async (req, res) => {
-      const menu = req.body
-      const result = await menuCollection.insertOne(menu)
+      const menu = req.body;
+      const result = await menuCollection.insertOne(menu);
       res.send(result);
     });
 
-    app.patch('/menu/:id', async (req,res) => {
-        const item = req.body;
-        const id = req.params.id;
-        const query = {_id: new ObjectId(id)}
-        const updatedDoc = {
-                $set: {
-                        name: item.name,
-                        price: item.price,
-                        image: item.image,
-                        category: item.categroy,
-                        recipe: item.recipe
-                }
-        }
-        const result = await menuCollection.updateOne(query, updatedDoc)
-        res.send(result)
-    })
+    app.patch("/menu/:id", async (req, res) => {
+      const item = req.body;
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          name: item.name,
+          price: item.price,
+          image: item.image,
+          category: item.categroy,
+          recipe: item.recipe,
+        },
+      };
+      const result = await menuCollection.updateOne(query, updatedDoc);
+      res.send(result);
+    });
 
     app.get("/reviews", async (req, res) => {
       // const menu = req.body
@@ -203,55 +201,81 @@ async function run() {
       res.send(result);
     });
 
-
-    app.delete("/menu/:id",verifyToken, verifyAdmin, async (req, res) => {
+    app.delete("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await menuCollection.deleteOne(query);
       res.send(result);
     });
 
+    // payment history displayed by logged in user email======
+    app.get("/payments/:email", verifyToken, async (req, res) => {
+      const query = { email: req.params.email };
+      if (req.params.email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden" });
+      }
+      const result = await paymentCollection.find(query).toArray();
+      res.send(result);
+    });
+    //     payment intent========
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
 
-    app.get('/payments/:email', verifyToken, async(req,res)=> {
-        const query = {email: req.params.email};
-        if(req.params.email !== req.decoded.email){
-                return res.status(403).send({message: 'forbidden'});
-                
-        }
-        const result = await paymentCollection.find(query).toArray();
-                res.send(result)
-    })
-//     payment intent========
-app.post('/create-payment-intent',async(req,res)=> {
-        const {price} = req.body;
-        const amount = parseInt(price * 100);
-        const paymentIntent = await stripe.paymentIntents.create({
-                amount: amount,
-                currency: 'usd',
-                payment_method_types: ['card']
-        })
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
 
-        res.send({
-                clientSecret: paymentIntent.client_secret
-        })
-})
+    // create payment and save to db with deleting customer added cart from db=============
+    app.post("/payments", async (req, res) => {
+      const payment = req.body;
+      const paymentResult = await paymentCollection.insertOne(payment);
 
-// create payment and save to db with deleting customer added cart from db=============
-app.post('/payments', async (req, res) => {
-        const payment = req.body;
-        const paymentResult = await paymentCollection.insertOne(payment)
+      // delete cart from added cart items  by user....
+      const query = {
+        _id: {
+          $in: payment.cartIds.map((id) => new ObjectId(id)),
+        },
+      };
 
-        // delete cart from added cart items  by user....
-        const query = {_id:{
-                $in: payment.cartIds.map(id => new ObjectId(id))}}
-                
-        const deleteResult = await cartCollection.deleteMany(query)
+      const deleteResult = await cartCollection.deleteMany(query);
 
-        res.send({paymentResult, deleteResult})
-})
+      res.send({ paymentResult, deleteResult });
+    });
+
+    // admin stats---------------------------
+    app.get("/admin-stats", async (req, res) => {
+      const users = await userCollection.estimatedDocumentCount();
+      const menuItems = await menuCollection.estimatedDocumentCount();
+      const orders = await paymentCollection.estimatedDocumentCount();
+      const result = await paymentCollection
+        .aggregate([
+          {
+            $group: {
+              _id: null,
+              totalRevenue: {
+                $sum: "$price",
+              },
+            },
+          },
+        ])
+        .toArray();
+      const revenue = result.length > 0 ? result[0].totalRevenue : 0;
+      res.send({
+        users,
+        menuItems,
+        orders,
+        revenue,
+      });
+    });
   } finally {
     // Ensures that the client will close when you finish/error
-    
   }
 }
 run().catch(console.dir);
