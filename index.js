@@ -212,6 +212,15 @@ async function run() {
     });
 
 
+    app.get('/payments/:email', verifyToken, async(req,res)=> {
+        const query = {email: req.params.email};
+        if(req.params.email !== req.decoded.email){
+                return res.status(403).send({message: 'forbidden'});
+                
+        }
+        const result = await paymentCollection.find(query).toArray();
+                res.send(result)
+    })
 //     payment intent========
 app.post('/create-payment-intent',async(req,res)=> {
         const {price} = req.body;
@@ -227,11 +236,12 @@ app.post('/create-payment-intent',async(req,res)=> {
         })
 })
 
+// create payment and save to db with deleting customer added cart from db=============
 app.post('/payments', async (req, res) => {
         const payment = req.body;
         const paymentResult = await paymentCollection.insertOne(payment)
 
-        // delete cart items 
+        // delete cart from added cart items  by user....
         const query = {_id:{
                 $in: payment.cartIds.map(id => new ObjectId(id))}}
                 
